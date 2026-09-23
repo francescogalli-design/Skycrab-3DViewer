@@ -1,3 +1,11 @@
+/* Secondary styles — keep in sync with root luxury theme */
+:root {
+    --champagne: #c9a962;
+    --hairline: rgba(201, 169, 98, 0.28);
+    --font-display: "Cormorant Garamond", "Raveo", Georgia, serif;
+    --font-body: "Manrope", "PP Mori", sans-serif;
+}
+
 html,
 body {
     height: 100%;
@@ -5,21 +13,17 @@ body {
     margin: 0;
     padding: 0;
     background: #000;
-    font-family: 'Inter', Arial, sans-serif;
+    font-family: var(--font-body);
     box-sizing: border-box;
-    color: #fff;
+    color: #f4efe6;
 }
 
-/* Smooth wrapper setup for GSAP */
 #smooth-wrapper {
     height: 100vh;
     width: 100vw;
     overflow: hidden;
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    inset: 0;
 }
 
 #smooth-content {
@@ -28,7 +32,6 @@ body {
     position: relative;
 }
 
-/* Scene container adjusted for ScrollSmoother */
 #scene-container {
     position: fixed;
     inset: 0;
@@ -38,7 +41,6 @@ body {
     z-index: 0;
 }
 
-/* Text overlay with parallax effects */
 .text-overlay {
     position: relative;
     z-index: 1;
@@ -46,125 +48,24 @@ body {
     will-change: transform;
 }
 
-.text-overlay .title {
-    font-size: 10rem;
-    margin-bottom: 1.2rem;
-    font-weight: 700;
-    letter-spacing: 0.01em;
-    line-height: 1.14;
-    text-shadow: 0 1.2px 1.7px rgba(0, 0, 0, 0.3);
-    will-change: transform;
-    /* Add ScrollSmoother parallax effect */
-    data-speed="0.5";
-    data-speed="clamp(0.5)";
-}
-
-.text-overlay .description {
-    font-size: 1.20rem;
-    line-height: 1.68;
-    letter-spacing: 0.01em;
-    font-weight: 400;
-    opacity: 0.93;
-    will-change: transform;
-    /* Add slightly different parallax speed */
-    data-speed="0.7";
-    data-speed="clamp(0.7)";
+.text-overlay .title,
+.overlay-title {
+    font-family: var(--font-display);
+    font-weight: 500;
 }
 
 #debug-container {
     position: fixed;
-    top: 20px;
-    left: 20px;
-    font-family: 'Roboto Mono', monospace;
-    color: #00ff88;
-    background: rgba(0, 0, 0, 0.7);
-    padding: 15px;
-    border-radius: 8px;
-    border: 1px solid #00ff8855;
-    backdrop-filter: blur(5px);
-    display: block;
-    z-index: 1000;
-    min-width: 300px;
-    box-shadow: 0 0 20px rgba(0, 255, 136, 0.2);
-}
-
-.debug-title {
-    font-size: 14px;
-    margin-bottom: 15px;
-    color: #00ff88;
-    border-bottom: 1px solid #00ff8855;
-    padding-bottom: 5px;
-}
-
-.controls-section {
-    margin-bottom: 20px;
-}
-
-.control-group {
-    margin-bottom: 12px;
-}
-
-.control-group label {
-    display: block;
-    font-size: 12px;
-    margin-bottom: 4px;
-    color: #00ffcc;
-}
-
-.slider-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.slider-row input[type="range"] {
-    flex: 1;
-    height: 4px;
-    background: #00ff8855;
+    top: 16px;
+    right: 16px;
+    font-family: var(--font-body);
+    color: rgba(244, 239, 230, 0.72);
+    background: rgba(8, 8, 8, 0.72);
+    padding: 1.25rem;
     border-radius: 2px;
-    appearance: none;
-    outline: none;
-}
-
-.slider-row input[type="range"]::-webkit-slider-thumb {
-    appearance: none;
-    width: 12px;
-    height: 12px;
-    background: #00ff88;
-    border-radius: 50%;
-    cursor: pointer;
-}
-
-.value-display {
-    min-width: 50px;
-    font-size: 11px;
-    text-align: right;
-}
-
-.info-header {
-    margin-top: 10px;
-    color: #00ffcc;
-    font-size: 12px;
-}
-
-.info-row {
-    font-size: 12px;
-    line-height: 1.5;
-}
-
-.copy-button {
-    background: #00ff88;
-    color: black;
-    border: none;
-    padding: 5px 10px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-family: 'Roboto Mono', monospace;
-    font-size: 11px;
-    margin-top: 10px;
-    transition: all 0.3s;
-}
-
-.copy-button:hover {
-    background: #00cc6f;
+    border: 1px solid var(--hairline);
+    backdrop-filter: blur(18px);
+    z-index: 1100;
+    min-width: 280px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
 }

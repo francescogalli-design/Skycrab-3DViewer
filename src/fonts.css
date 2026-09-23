@@ -1,13 +1,16 @@
+/* Zurich Sans: unico carattere del sito */
 @font-face {
-    font-family: 'Raveo';
-    src: url('/asset/Raveo-Regular.otf') format('opentype');
-    font-weight: normal;
+    font-family: 'Zurich Sans';
+    src: url('/asset/ZurichSans-Regular.ttf') format('truetype');
+    font-weight: 400;
     font-style: normal;
+    font-display: swap;
 }
 
 @font-face {
-    font-family: 'Raveo';
-    src: url('/asset/Raveo-SemiBold.otf') format('opentype');
+    font-family: 'Zurich Sans';
+    src: url('/asset/ZurichSans-SemiBold.ttf') format('truetype');
     font-weight: 600;
     font-style: normal;
-} 
+    font-display: swap;
+}

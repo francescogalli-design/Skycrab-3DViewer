@@ -1,18 +1,14 @@
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { ScrollSmoother } from "gsap/ScrollSmoother";
 
-gsap.registerPlugin(ScrollTrigger, ScrollSmoother);
+gsap.registerPlugin(ScrollTrigger);
 
 export function setupSmoothScrollParallax() {
-    ScrollSmoother.create({
-        wrapper: "#smooth-wrapper",
-        content: "#smooth-content",
-        smooth: 2,
-        effects: true
-    });
+    if (!document.querySelector('#smooth-wrapper') || !document.querySelector('#smooth-content')) {
+        return;
+    }
 
-    gsap.utils.toArray('.scene-text').forEach((el, i) => {
+    gsap.utils.toArray('.scene-text').forEach((el) => {
         gsap.fromTo(el,
             { y: 80, opacity: 0 },
             {

@@ -4,7 +4,9 @@
   "description": "3D Viewer with Three.js",
   "main": "index.html",
   "scripts": {
+    "predev": "node scripts/fetch-lfs-models.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/fetch-lfs-models.mjs",
     "build": "vite build",
     "serve": "vite preview"
   },

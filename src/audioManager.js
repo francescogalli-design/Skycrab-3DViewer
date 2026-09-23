@@ -1,64 +1,44 @@
+import { gsap } from 'gsap';
+
+// Colonna sonora ambientale: parte solo su gesto dell'utente (policy autoplay dei browser)
 export class AudioManager {
-    constructor() {
-        this.backgroundMusic = null;
-        this.transitionSound = null;
-        this.audioEnabled = false;
+    constructor(src = '/asset/background.mp3', volume = 0.45) {
+        this.targetVolume = volume;
+        this.playing = false;
+        this.audio = new Audio(src);
+        this.audio.loop = true;
+        this.audio.preload = 'none';
+        this.audio.volume = 0;
+    }
+
+    async play() {
         try {
-            this.backgroundMusic = new Audio('/asset/background.mp3');
-           // this.transitionSound = new Audio('/asset/transition.mp3');
-            this.backgroundMusic.loop = true;
-            this.backgroundMusic.volume = 0.0;
-            this.transitionSound.volume = 0.5;
-            this.audioEnabled = true;
+            await this.audio.play();
+            this.playing = true;
+            gsap.to(this.audio, { volume: this.targetVolume, duration: 2.2, ease: 'power1.out', overwrite: true });
         } catch (error) {
             console.warn('Audio non disponibile:', error);
-            this.audioEnabled = false;
+            this.playing = false;
         }
+        return this.playing;
     }
 
-    async playBackgroundMusicWithFadeIn(targetVol = 0.5, fadeMs = 1200) {
-        if (!this.audioEnabled) return;
-        try {
-            await this.backgroundMusic.play();
-            this.fadeIn(targetVol, fadeMs);
-        } catch (error) {
-            // Most browsers require a user gesture for first sound,
-            // so you might still see this warning unless the user has interacted
-            console.warn('Errore nella riproduzione della musica:', error);
-        }
-    }
-
-    fadeIn(targetVol = 0.5, duration = 1000) {
-        if (!this.audioEnabled) return;
-        const steps = 25;
-        const stepTime = duration / steps;
-        let currentStep = 0;
-        const startVol = this.backgroundMusic.volume;
-        const volDiff = targetVol - startVol;
-        const fade = () => {
-            currentStep++;
-            const prog = currentStep / steps;
-            this.backgroundMusic.volume = startVol + volDiff * prog;
-            if (currentStep < steps) {
-                setTimeout(fade, stepTime);
-            } else {
-                this.backgroundMusic.volume = targetVol;
-            }
-        };
-        fade();
-    }
-
-    playTransitionSound() {
-        if (!this.audioEnabled) return;
-        this.transitionSound.currentTime = 0;
-        this.transitionSound.play().catch(error => {
-            console.warn('Errore nella riproduzione dell\'effetto sonoro:', error);
+    pause() {
+        this.playing = false;
+        gsap.to(this.audio, {
+            volume: 0,
+            duration: 1.2,
+            ease: 'power1.in',
+            overwrite: true,
+            onComplete: () => { if (!this.playing) this.audio.pause(); },
         });
     }
 
-    stopBackgroundMusic() {
-        if (!this.audioEnabled) return;
-        this.backgroundMusic.pause();
-        this.backgroundMusic.currentTime = 0;
+    toggle() {
+        if (this.playing) {
+            this.pause();
+            return Promise.resolve(false);
+        }
+        return this.play();
     }
 }

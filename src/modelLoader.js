@@ -1,98 +1,154 @@
 // modelLoader.js
+// Carica il modello ottimizzato (GLB meshopt + texture 4K JPG) con progresso reale in byte.
 import * as THREE from 'three';
-import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { gsap } from 'gsap';
+import { applyScanEffect } from './atmosphere.js';
 
-export function setupModelLoader(scene) {
-    const progressText = document.getElementById('progress-text');
-    const loadingScreen = document.getElementById('loading-screen');
-    const manager = new THREE.LoadingManager();
+const ASSETS = {
+    model: '/models/opt/cattedrale.glb',
+    diffuse: '/models/opt/cattedrale_diffuse.jpg',
+    normal: '/models/opt/cattedrale_normal.jpg',
+    cityPoints: '/models/opt/city_points.bin',
+    cityEdges: '/models/opt/city_edges.bin',
+    heightfield: '/models/opt/heightfield.bin',
+};
 
-    manager.onStart = (url, itemsLoaded, itemsTotal) => {
-        if (progressText) progressText.textContent = 'Caricamento: 0%';
-    };
+// Peso approssimativo usato finché il server non comunica il Content-Length
+const FALLBACK_BYTES = { model: 17e6, diffuse: 6.3e6, normal: 6.9e6, cityPoints: 5.6e6, cityEdges: 0.7e6, heightfield: 0.46e6 };
 
-    manager.onProgress = (url, itemsLoaded, itemsTotal) => {
-        const percent = Math.round((itemsLoaded / itemsTotal) * 100);
-        if (progressText) progressText.textContent = `Caricamento: ${percent}%`;
-    };
+async function fetchWithProgress(url, onBytes) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+    const total = Number(res.headers.get('content-length')) || 0;
+    if (!res.body) {
+        const buf = await res.arrayBuffer();
+        onBytes(buf.byteLength, buf.byteLength);
+        return buf;
+    }
+    const reader = res.body.getReader();
+    const chunks = [];
+    let loaded = 0;
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        loaded += value.byteLength;
+        onBytes(loaded, total);
+    }
+    const out = new Uint8Array(loaded);
+    let offset = 0;
+    for (const c of chunks) { out.set(c, offset); offset += c.byteLength; }
+    return out.buffer;
+}
 
-    manager.onLoad = () => {
-        if (progressText) progressText.textContent = 'Caricamento: 100%';
-        if (loadingScreen) setTimeout(() => { loadingScreen.style.display = 'none'; }, 500);
-    };
-
-    manager.onError = (url) => {
-        console.error(`Errore nel caricamento della risorsa: ${url}`);
-    };
-
-    const textureLoader = new THREE.TextureLoader(manager);
-    const diffuseMap = textureLoader.load('/models/low_Cattedrale_decimata_u0_v0_diffuse.png');
-    const normalMap = textureLoader.load('/models/low_Cattedrale_decimata_u0_v0_normal.png');
-
+function textureFromBuffer(buffer, colorSpace) {
+    const url = URL.createObjectURL(new Blob([buffer], { type: 'image/jpeg' }));
     return new Promise((resolve, reject) => {
-        const fbxLoader = new FBXLoader(manager);
-        fbxLoader.load(
-            '/models/Cattedrale_decimata.fbx',
-            (fbx) => {
-                fbx.traverse((child) => {
-                    if (child.isMesh) {
-                        if (!child.geometry.hasAttribute('normal')) child.geometry.computeVertexNormals();
-                        child.material = new THREE.MeshStandardMaterial({
-                            map: diffuseMap,
-                            normalMap: normalMap,
-                            roughness: 0.7,
-                            metalness: 0.0,
-                            transparent: true,
-                            opacity: 0,
-                        });
-                        child.castShadow = true;
-                        child.receiveShadow = true;
-                    }
-                });
-                // 1. Scala il modello per evitare che sia gigante
-                fbx.scale.set(0.01, 0.01, 0.01); // PROVA questo valore, eventualmente modificalo
-                // Converti gradi in radianti
-                fbx.rotation.y = THREE.MathUtils.degToRad(140); // Rotazione di 45 gradi
-
-                // 2. Centra il modello sul piano
-                // Calcola bounding box del modello
-                const box = new THREE.Box3().setFromObject(fbx);
-                const size = new THREE.Vector3();
-                const center = new THREE.Vector3();
-                box.getSize(size);
-                box.getCenter(center);
-
-                // Sposta il modello affinché la base tocchi y=0 (il piano)
-                const yOffset = box.min.y;  // quanto sotto lo zero va la mesh
-                fbx.position.y -= yOffset;
-                scene.add(fbx);
-                resolve(fbx);
-            },
-            undefined,
-            error => reject(error)
-        );
-
+        new THREE.TextureLoader().load(url, (tex) => {
+            URL.revokeObjectURL(url);
+            tex.colorSpace = colorSpace;
+            tex.anisotropy = 8;
+            resolve(tex);
+        }, undefined, reject);
     });
 }
 
-export function fadeInModel(model, duration) {
-    const startOpacity = 0;
-    const endOpacity = 1;
-    const startTime = performance.now();
+/**
+ * @param {THREE.Scene} scene
+ * @param {(progress: number) => void} onProgress valore 0..1
+ */
+export async function setupModelLoader(scene, onProgress = () => {}) {
+    const state = Object.fromEntries(Object.keys(ASSETS).map((k) => [k, { loaded: 0, total: FALLBACK_BYTES[k] }]));
+    const report = () => {
+        const loaded = Object.values(state).reduce((s, v) => s + v.loaded, 0);
+        const total = Object.values(state).reduce((s, v) => s + v.total, 0);
+        onProgress(Math.min(loaded / total, 0.99));
+    };
+    const track = (key) => (loaded, total) => {
+        state[key].loaded = loaded;
+        if (total) state[key].total = total;
+        report();
+    };
 
-    function animate() {
-        const elapsedTime = performance.now() - startTime;
-        const t = Math.min(elapsedTime / duration, 1);
-        const currentOpacity = startOpacity + (endOpacity - startOpacity) * t;
+    const [modelBuf, diffuseBuf, normalBuf, cityPointsBuf, cityEdgesBuf, heightBuf] = await Promise.all(
+        Object.entries(ASSETS).map(([key, url]) => fetchWithProgress(url, track(key))),
+    );
 
-        model.traverse((child) => {
-            if (child.isMesh && child.material) {
-                child.material.opacity = currentOpacity;
-                child.material.transparent = true;
-            }
+    const gltfLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+    const [diffuseMap, normalMap, gltf] = await Promise.all([
+        textureFromBuffer(diffuseBuf, THREE.SRGBColorSpace),
+        textureFromBuffer(normalBuf, THREE.NoColorSpace),
+        gltfLoader.parseAsync(modelBuf, ''),
+    ]);
+
+    // Le UV arrivano dall'FBX originale (convenzione OpenGL): le texture restano con flipY = true.
+    // Scala, rotazione e appoggio al suolo identici alla vecchia pipeline: i cameraPoints restano validi.
+    const model = new THREE.Group();
+    model.add(gltf.scene);
+    gltf.scene.traverse((child) => {
+        if (!child.isMesh) return;
+        child.material = new THREE.MeshStandardMaterial({
+            map: diffuseMap,
+            normalMap,
+            roughness: 0.78,
+            metalness: 0.0,
+            transparent: true,
+            opacity: 0,
         });
+        applyScanEffect(child.material);
+        child.castShadow = true;
+        child.receiveShadow = true;
+    });
 
-        if (t < 1) requestAnimationFrame(animate);
-    }
-    animate();
+    model.scale.setScalar(0.01);
+    model.rotation.y = THREE.MathUtils.degToRad(140);
+    model.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(model);
+    model.position.y -= box.min.y;
+
+    scene.add(model);
+    onProgress(1);
+    return {
+        model,
+        basilica: gltf.scene,
+        cityPoints: cityPointsBuf,
+        cityEdges: cityEdgesBuf,
+        heightfield: parseHeightfield(heightBuf),
+    };
+}
+
+// Heightfield in coordinate mondo: griglia 480x480 a 1 m, origine (-240, -240), Int16 in cm.
+// Massimo tra basilica e città: usato per tenere la camera fuori dagli edifici e sopra il suolo.
+function parseHeightfield(buffer) {
+    const n = 480, x0 = -240, z0 = -240;
+    const data = new Int16Array(buffer);
+    const sample = (gx, gz) => (gx < 0 || gz < 0 || gx >= n || gz >= n ? 0 : data[gz * n + gx] / 100);
+    return {
+        // Altezza massima in un intorno di raggio r metri
+        heightAt(x, z, r = 2) {
+            const gx = Math.floor(x - x0), gz = Math.floor(z - z0);
+            let h = -Infinity;
+            for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) h = Math.max(h, sample(gx + dx, gz + dz));
+            return h;
+        },
+    };
+}
+
+export function fadeInModel(model, duration = 2000, delay = 0) {
+    model.traverse((child) => {
+        if (!child.isMesh || !child.material) return;
+        const mat = child.material;
+        mat.transparent = true;
+        mat.opacity = 0;
+        gsap.to(mat, {
+            opacity: 1,
+            duration: duration / 1000,
+            delay: delay / 1000,
+            ease: 'power2.out',
+            // Opaco a fine fade: niente artefatti di ordinamento delle trasparenze
+            onComplete: () => { mat.transparent = false; mat.needsUpdate = true; },
+        });
+    });
 }

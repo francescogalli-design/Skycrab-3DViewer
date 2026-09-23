@@ -1,29 +1,147 @@
 <!doctype html>
-<html lang="en">
+<html lang="it">
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Basilica di Santa Maria Maggiore</title>
-    <script src="https://unpkg.com/gsap@3.12.5/dist/gsap.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#000000">
+    <title>Basilica di Santa Maria Maggiore — Skycrab</title>
+    <link rel="preload" href="/asset/ZurichSans-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="src/fonts.css">
     <link rel="stylesheet" href="style.css">
 </head>
-  
 
 <body>
-<header>
-  <div class="logo-container">
-    <img class="logo-astra" src="asset/astra.svg" alt="Logo Astra" />
-    <img class="logo-s" src="https://demo-skycrab.s3.eu-north-1.amazonaws.com/logowsk.png" alt="Logo WSK" />
-  </div>
-</header>
-<div id="scene-container"></div>
-<div class="text-overlay">
-  <h1 class="overlay-title"></h1>
-  <p class="overlay-desc"></p>
-</div>
+    <!-- ——— Loader ——— -->
+    <div id="loading-screen" aria-live="polite">
+        <div class="curtain curtain--top" aria-hidden="true"></div>
+        <div class="curtain curtain--bottom" aria-hidden="true"></div>
+        <span class="loader-seam" aria-hidden="true"></span>
 
+        <p class="loader-corner loader-corner--tl">Immersive Heritage</p>
+        <p class="loader-corner loader-corner--tr">45°42′12″ N &nbsp;·&nbsp; 9°39′45″ E</p>
 
+        <div class="loader-brand">
+            <div class="loader-logo" role="img" aria-label="Astra">
+                <svg viewBox="0 0 77 24" aria-hidden="true">
+                        <path d="M13.4914 23.4483V20.484C11.8572 22.8782 9.38697 23.8283 6.6127 23.8283C3.19237 23.8283 6.10352e-05 22.0801 6.10352e-05 18.4318C6.10352e-05 14.3274 3.80043 12.6552 7.37278 12.6552H13.4914C13.4914 10.033 12.3513 8.2468 8.96893 8.2468C6.5747 8.2468 4.86453 9.04487 4.67452 11.3251H0.874146C0.988157 6.76465 4.94054 4.75046 9.04494 4.75046C13.9094 4.75046 17.3297 6.95467 17.3297 12.0472V23.4483H13.4914ZM3.99045 18.0137C3.99045 19.8759 6.04265 20.56 7.75281 20.56C10.6791 20.56 13.4914 18.2418 13.4914 16.0756V15.5055H7.48679C5.85263 15.5055 3.99045 16.2656 3.99045 18.0137Z" />
+                        <path d="M18.215 17.2537H22.0154C22.1674 20.218 25.0177 20.522 27.1839 20.522C29.5781 20.522 30.9463 19.6099 30.9083 18.2418C30.8703 16.2276 28.4 15.9615 25.7398 15.5435C22.4714 15.0495 18.8231 14.2894 18.8231 10.033C18.8231 6.34661 22.4334 4.75046 26.3858 4.75046C30.1862 4.75046 34.5186 6.1946 34.7086 11.1351H30.9083C30.7942 8.89286 28.666 8.09478 26.3858 8.09478C24.7137 8.09478 22.8515 8.74084 22.8515 9.95696C22.8515 11.4771 24.6377 11.9332 26.8799 12.3132C30.4522 12.9213 35.0887 13.4533 35.0887 18.1278C35.0887 21.7761 31.7063 23.8283 27.1839 23.8283C23.3455 23.8283 18.215 22.6882 18.215 17.2537Z" />
+                        <path d="M38.5259 5.1305V0H42.4403V5.1305H47.9128V8.51283H42.4403V18.0137C42.4403 19.5339 43.0864 19.9519 44.2265 19.9519H48.5209V23.4863H43.5044C40.5401 23.4863 38.5259 22.2702 38.5259 18.1278V8.51283H34.7635V5.1305H38.5259Z" />
+                        <path d="M53.8236 5.09251V8.58885C54.4317 6.49865 56.3319 5.0545 58.4221 5.0545H60.2843V8.70286H58.8401C55.7618 8.70286 53.8236 11.3251 53.8236 14.2894V23.4483H49.9473V5.09251H53.8236Z" />
+                        <path d="M72.8038 23.4483V20.484C71.1697 22.8782 68.6994 23.8283 65.9251 23.8283C62.5048 23.8283 59.3125 22.0801 59.3125 18.4318C59.3125 14.3274 63.1129 12.6552 66.6852 12.6552H72.8038C72.8038 10.033 71.6637 8.2468 68.2814 8.2468C65.8871 8.2468 64.177 9.04487 63.987 11.3251H60.1866C60.3006 6.76465 64.253 4.75046 68.3574 4.75046C73.2219 4.75046 76.6422 6.95467 76.6422 12.0472V23.4483H72.8038ZM63.3029 18.0137C63.3029 19.8759 65.3551 20.56 67.0653 20.56C69.9915 20.56 72.8038 18.2418 72.8038 16.0756V15.5055H66.7992C65.1651 15.5055 63.3029 16.2656 63.3029 18.0137Z" />
+                </svg>
+                <span class="loader-sheen" aria-hidden="true"></span>
+            </div>
+            <div class="loader-powered">
+                <span>powered by</span>
+                <img src="asset/logowsk.png" alt="Skycrab" />
+            </div>
+        </div>
+
+        <div class="loader-foot">
+            <p class="loader-label">Basilica di Santa Maria Maggiore<span>Bergamo Alta</span></p>
+        </div>
+    </div>
+
+    <div id="scene-container"></div>
+    <div class="vignette" aria-hidden="true"></div>
+    <div class="grain" aria-hidden="true"></div>
+
+    <!-- ——— Modalità show: bande cinema e HUD ——— -->
+    <div class="letterbox" aria-hidden="true"><span class="lb lb--top"></span><span class="lb lb--bottom"></span></div>
+    <div class="drone-hud" aria-hidden="true">
+        <span class="hud-corner hud-corner--tl"></span>
+        <span class="hud-corner hud-corner--tr"></span>
+        <span class="hud-corner hud-corner--bl"></span>
+        <span class="hud-corner hud-corner--br"></span>
+        <span class="hud-cross"></span>
+        <div class="hud-top">
+            <span class="hud-rec"><i></i>REC</span>
+            <span class="hud-time">00:00</span>
+        </div>
+        <div class="hud-bottom">
+            <span class="hud-group">
+                <span class="hud-alt">ALT 000 m</span>
+                <span class="hud-coords">45.70336° N · 9.66250° E</span>
+            </span>
+            <span class="hud-hdg">HDG 000°</span>
+        </div>
+        <div class="hud-scan">
+            <span>Scansione 3D</span>
+            <b>000%</b>
+            <em><i></i></em>
+        </div>
+    </div>
+    <div class="show-hud" aria-hidden="true">
+        <div class="show-progress"></div>
+        <button class="show-exit" type="button" aria-label="Esci dallo show">
+            <span>Esci</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        </button>
+    </div>
+
+    <!-- ——— Header ——— -->
+    <header class="topbar">
+        <div class="logo-container">
+            <img class="logo-astra" src="asset/astra.svg" alt="Astra" />
+            <span class="logo-divider" aria-hidden="true"></span>
+            <img class="logo-s" src="asset/logowsk.png" alt="Skycrab" />
+        </div>
+
+        <div class="topbar-actions">
+            <div class="mood-switch" role="radiogroup" aria-label="Atmosfera">
+                <span class="mood-indicator" aria-hidden="true"></span>
+                <button class="mood-btn is-active" data-mood="auto" role="radio" aria-checked="true" title="Atmosfera del capitolo">
+                    <i class="icon" style="--icon: url(/asset/light.svg)"></i><span>Auto</span>
+                </button>
+                <button class="mood-btn" data-mood="day" role="radio" aria-checked="false" title="Giorno">
+                    <i class="icon" style="--icon: url(/asset/day.svg)"></i><span>Giorno</span>
+                </button>
+                <button class="mood-btn" data-mood="sunset" role="radio" aria-checked="false" title="Tramonto">
+                    <i class="icon" style="--icon: url(/asset/sunset.svg)"></i><span>Tramonto</span>
+                </button>
+                <button class="mood-btn" data-mood="night" role="radio" aria-checked="false" title="Notte">
+                    <i class="icon" style="--icon: url(/asset/night.svg)"></i><span>Notte</span>
+                </button>
+            </div>
+
+            <button class="sound-btn" type="button" aria-pressed="false" aria-label="Attiva suono">
+                <span class="sound-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+                <span class="sound-label">Suono</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- ——— Capitolo ——— -->
+    <section class="chapter" aria-live="polite">
+        <p class="chapter-kicker"><span class="chapter-mood">Bergamo Alta</span></p>
+        <h1 class="chapter-title"></h1>
+        <p class="chapter-desc"></p>
+    </section>
+
+    <!-- ——— Indice capitoli ——— -->
+    <nav class="chapter-nav" aria-label="Capitoli"></nav>
+
+    <!-- ——— Footer ——— -->
+    <footer class="bottombar">
+        <button class="show-cta" type="button">
+            <span class="show-cta-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" /></svg></span>
+            <span>Guarda lo show</span>
+        </button>
+        <div class="arrows">
+            <button class="arrow-btn" data-dir="-1" aria-label="Capitolo precedente">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+            </button>
+            <button class="arrow-btn" data-dir="1" aria-label="Capitolo successivo">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" /></svg>
+            </button>
+        </div>
+    </footer>
+
+    <div class="scroll-hint" aria-hidden="true">
+        <span class="scroll-hint-label">Scorri per esplorare</span>
+        <span class="scroll-hint-line"></span>
+    </div>
 
     <script type="module" src="src/main.js"></script>
 </body>
