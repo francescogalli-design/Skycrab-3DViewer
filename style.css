@@ -826,6 +826,161 @@ body.is-show.is-drone .chapter {
     transform: scaleX(var(--scan, 0));
 }
 
+/* ——— Interfaccia di volo DJI (POV del drone) ——— */
+.dji-top,
+.dji-focus,
+.dji-gimbal,
+.dji-photo,
+.dji-bottom { display: none; }
+
+.drone-hud.is-dji .dji-top,
+.drone-hud.is-dji .dji-gimbal,
+.drone-hud.is-dji .dji-photo,
+.drone-hud.is-dji .dji-bottom { display: flex; }
+.drone-hud.is-dji .dji-focus { display: block; }
+.drone-hud.is-dji .hud-bottom,
+.drone-hud.is-dji .hud-cross { display: none; }
+
+.dji-top {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    gap: 6px;
+    transform: translateX(-50%);
+}
+
+.dji-pill {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    height: 24px;
+    padding: 0 0.65rem;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.42);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 0.6875rem;
+    letter-spacing: 0.02em;
+}
+
+.dji-dot { width: 6px; height: 6px; border-radius: 50%; background: #34c759; box-shadow: 0 0 8px #34c759; }
+
+.dji-batt em {
+    position: relative;
+    width: 20px;
+    height: 9px;
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    border-radius: 2px;
+}
+
+.dji-batt em i { position: absolute; inset: 1px; right: 4px; background: #34c759; border-radius: 1px; }
+
+/* riquadro di messa a fuoco centrale */
+.dji-focus {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 84px;
+    height: 56px;
+    transform: translate(-50%, -50%);
+    background:
+        linear-gradient(#fff, #fff) left top / 12px 1px no-repeat,
+        linear-gradient(#fff, #fff) left top / 1px 12px no-repeat,
+        linear-gradient(#fff, #fff) right top / 12px 1px no-repeat,
+        linear-gradient(#fff, #fff) right top / 1px 12px no-repeat,
+        linear-gradient(#fff, #fff) left bottom / 12px 1px no-repeat,
+        linear-gradient(#fff, #fff) left bottom / 1px 12px no-repeat,
+        linear-gradient(#fff, #fff) right bottom / 12px 1px no-repeat,
+        linear-gradient(#fff, #fff) right bottom / 1px 12px no-repeat;
+    opacity: 0.75;
+}
+
+/* inclinazione del gimbal: scala verticale a sinistra */
+.dji-gimbal {
+    position: absolute;
+    left: 34px;
+    top: 50%;
+    align-items: center;
+    gap: 0.6rem;
+    transform: translateY(-50%);
+}
+
+.dji-gimbal-track {
+    position: relative;
+    width: 2px;
+    height: 110px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.25);
+}
+
+.dji-gimbal-track i {
+    position: absolute;
+    left: -4px;
+    width: 10px;
+    height: 2px;
+    background: #fff;
+    top: var(--pitch, 30%);
+}
+
+.dji-pitch { font-size: 0.8125rem; color: #fff; }
+
+/* scatti: otturatore che lampeggia e contatore */
+.dji-photo {
+    position: absolute;
+    right: 34px;
+    bottom: 34px;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.35rem 0.7rem 0.35rem 0.4rem;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.42);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: #fff;
+}
+
+.dji-shutter {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    background: rgba(255, 255, 255, var(--flash, 0));
+}
+
+.dji-photo-label { font-size: 0.6875rem; color: rgba(255, 255, 255, 0.7); }
+.dji-count { font-size: 0.8125rem; }
+
+.dji-bottom {
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    gap: 1.4rem;
+    padding: 0.4rem 1rem;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.42);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    transform: translateX(-50%);
+    color: rgba(255, 255, 255, 0.7);
+    white-space: nowrap;
+}
+
+.dji-bottom b { color: #fff; font-weight: 600; }
+
+/* didascalia sopra la barra di telemetria DJI */
+body.is-show.is-dji .chapter { bottom: calc(10.5vh + 2.2vh + 4rem); }
+
+/* stacco di montaggio su nero */
+.cut {
+    position: fixed;
+    inset: 0;
+    z-index: 1002;
+    background: #000;
+    opacity: 0;
+    pointer-events: none;
+}
+
 /* Didascalie in stile cinema durante lo show */
 body.is-show .chapter {
     left: 50%;
@@ -1046,6 +1201,10 @@ body.is-show .vignette { opacity: 1; }
     .show-progress { gap: 4px; }
     .hud-coords, .hud-scan em { display: none; }
     .hud-bottom { display: none; }
+    .dji-top .dji-pill:nth-child(2),
+    .dji-top .dji-pill:nth-child(3),
+    .drone-hud.is-dji .dji-bottom,
+    .drone-hud.is-dji .dji-gimbal { display: none; }
     body.is-show.is-drone .chapter { bottom: calc(10.5vh + clamp(1.25rem, 4vh, 2.5rem)); }
     .topbar {
         flex-wrap: wrap;

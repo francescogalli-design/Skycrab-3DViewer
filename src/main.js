@@ -7,10 +7,11 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
 import { cameraPoints } from './cameraPoints.js';
-import { setupLighting, applyMood, MOODS } from './light.js';
+import { setupLighting, applyMood, MOODS, shadowState } from './light.js';
 import { setupModelLoader, fadeInModel } from './modelLoader.js';
-import { atmosphereUniforms, scanUniforms, createCityPoints, createCityEdges, createMotes, createRain, FogPass } from './atmosphere.js';
-import { SHOW_SEQUENCE } from './showSequence.js';
+import { atmosphereUniforms, scanUniforms, createGround, createCityPoints, createCityEdges, createMotes, createRain, FogPass } from './atmosphere.js';
+import { SHOW_SEQUENCE, SCAN, droneAt } from './showSequence.js';
+import { createDrone, createCaptureNetwork } from './drone.js';
 import { initDebugUI } from './debugSystem.js';
 import { AudioManager } from './audioManager.js';
 
@@ -75,6 +76,7 @@ document.addEventListener('keydown', (e) => {
     if (e.key.toLowerCase() === 'd' && !e.metaKey && !e.ctrlKey) {
         debugEnabled = !debugEnabled;
         if (debugEnabled) debugSystem.controls.target.copy(rig.target);
+        else rig.snap = true;
         debugSystem.toggle(debugEnabled);
     }
 });
@@ -86,9 +88,12 @@ const MODEL_CENTER = new THREE.Vector3(-4, 20, -4);
 const CAMERA_CLEARANCE = 4;
 let heightfield = null;
 let shadowsDirtyUntil = 0;
-const clock = new THREE.Clock();
+// Tempo unico per animazioni GSAP e rendering (aggiornato dal ticker di GSAP, vedi render loop)
+const clock = { elapsedTime: 0 };
 
-const clearanceAt = (p) => (heightfield ? p.y - heightfield.heightAt(p.x, p.z, 3) : Infinity);
+let groundAt = () => -Infinity;
+const sceneHeightAt = (x, z, r = 3) => Math.max(heightfield ? heightfield.heightAt(x, z, r) : -Infinity, groundAt(x, z));
+const clearanceAt = (p) => p.y - sceneHeightAt(p.x, p.z);
 
 const rig = {
     basePos: cameraPoints[0].position.clone().multiplyScalar(2.2).setY(95),
@@ -96,7 +101,27 @@ const rig = {
     pointer: new THREE.Vector2(),
     pointerSmooth: new THREE.Vector2(),
     idle: { w: 0, start: 0 },
+    clearance: CAMERA_CLEARANCE,  // minima distanza da tetti/suolo (ridotta nei POV a terra)
+    clearanceR: 3,
+    roll: 0,
+    rollTarget: 0,
+    snap: true,      // al prossimo frame la camera salta alla posa senza molla (stacchi)
+    drift: 1,        // intensità del micro-movimento (sfuma tra tour e show)
 };
+
+// Molla criticamente smorzata (SmoothDamp): velocità continua tra una scena e l'altra
+const camSmooth = { pos: new THREE.Vector3(), tgt: new THREE.Vector3(), vPos: new THREE.Vector3(), vTgt: new THREE.Vector3() };
+function smoothDamp(cur, target, vel, smoothTime, dt) {
+    const omega = 2 / smoothTime;
+    const x = omega * dt;
+    const k = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+    for (const c of ['x', 'y', 'z']) {
+        const change = cur[c] - target[c];
+        const temp = (vel[c] + omega * change) * dt;
+        vel[c] = (vel[c] - omega * temp) * k;
+        cur[c] = target[c] + (change + temp) * k;
+    }
+}
 camera.position.copy(rig.basePos);
 
 // Loop "da fermo": lenta orbita, respiro del dolly e pan, con periodi primi tra loro (non si ripete mai uguale)
@@ -132,7 +157,7 @@ function freezeIdle() {
     rig.idle.w = 0;
 }
 
-function arcTo(point, duration) {
+function arcTo(point, duration, { ease = EASE_CAMERA } = {}) {
     const start = rig.basePos.clone();
     const end = point.position.clone();
 
@@ -156,8 +181,8 @@ function arcTo(point, duration) {
     }
     const state = { t: 0 };
     return gsap.timeline()
-        .to(state, { t: 1, duration, ease: EASE_CAMERA, onUpdate: () => curve.getPoint(state.t, rig.basePos) }, 0)
-        .to(rig.target, { x: point.target.x, y: point.target.y, z: point.target.z, duration, ease: EASE_CAMERA }, 0);
+        .to(state, { t: 1, duration, ease, onUpdate: () => curve.getPoint(state.t, rig.basePos) }, 0)
+        .to(rig.target, { x: point.target.x, y: point.target.y, z: point.target.z, duration, ease }, 0);
 }
 
 // lens.breath: gradi di FOV aggiunti a metà transizione (effetto "respiro" cinematografico)
@@ -168,7 +193,8 @@ function updateLens() {
     lens.base = aspect < 0.8 ? 72 : aspect < 1.2 ? 64 : 54;
     camera.fov = lens.base + lens.breath;
     // Su desktop il soggetto si sposta a destra, lasciando respiro al testo
-    camera.filmOffset = window.innerWidth > 900 ? -2.6 : 0;
+    // (durante lo show le didascalie sono centrate: inquadratura centrata)
+    camera.filmOffset = window.innerWidth > 900 && !document.body.classList.contains('is-show') ? -2.6 : 0;
     camera.updateProjectionMatrix();
 }
 updateLens();
@@ -189,6 +215,7 @@ const ui = {
     loaderPaths: [...document.querySelectorAll('.loader-logo path')],
     moodBtns: [...document.querySelectorAll('.mood-btn')],
     soundBtn: $('.sound-btn'),
+    cut: $('.cut'),
     showCta: $('.show-cta'),
     showHud: $('.show-hud'),
     showProgress: $('.show-progress'),
@@ -345,7 +372,7 @@ function hideScrollHint() {
 }
 
 // Spostamento verso un capitolo (usato sia dalla navigazione sia dallo show)
-function travel(index, { duration = TRANSITION, mood = null, idle = 1 } = {}) {
+function travel(index, { duration = TRANSITION, mood = null, idle = 1, ease = EASE_CAMERA } = {}) {
     return new Promise((resolve) => {
         busy = true;
         const moving = index !== currentPoint || offChapter;
@@ -367,7 +394,7 @@ function travel(index, { duration = TRANSITION, mood = null, idle = 1 } = {}) {
                 ],
                 overwrite: 'auto',
             });
-            arcTo(cameraPoints[index], duration).eventCallback('onComplete', done);
+            arcTo(cameraPoints[index], duration, { ease }).eventCallback('onComplete', done);
         } else {
             gsap.delayedCall(duration, done);
         }
@@ -401,7 +428,7 @@ const showSegments = [...ui.showProgress.querySelectorAll('i')];
 const wait = (seconds, token) => new Promise((resolve) => token.calls.push(gsap.delayedCall(seconds, resolve)));
 const track = (token, tween) => { token.calls.push(tween); return tween; };
 
-// Mirino del drone: visibile nelle riprese aeree, aggiornato nel render loop
+// Mirino: 'rec' (minimale) nelle riprese aeree, 'dji' (interfaccia di volo) nel POV del drone
 const droneHud = {
     el: $('.drone-hud'),
     time: $('.hud-time'),
@@ -411,34 +438,107 @@ const droneHud = {
     scan: $('.hud-scan'),
     scanValue: $('.hud-scan b'),
     scanBar: $('.hud-scan em i'),
-    on: false,
+    djiH: $('.dji-h'),
+    djiD: $('.dji-d'),
+    djiHs: $('.dji-hs'),
+    djiVs: $('.dji-vs'),
+    djiPitch: $('.dji-pitch'),
+    djiPitchBar: $('.dji-gimbal-track'),
+    djiCount: $('.dji-count'),
+    djiShutter: $('.dji-shutter'),
+    djiBatt: $('.dji-batt b'),
+    mode: null,
     started: 0,
     lastUpdate: 0,
+    prev: new THREE.Vector3(),
 };
-function setDroneHud(on) {
-    droneHud.on = on;
+function setDroneHud(mode) {
+    droneHud.mode = mode ?? null;
+    droneHud.prev.set(NaN, NaN, NaN); // niente velocità "fantasma" dopo uno stacco
+    const on = !!mode;
     document.body.classList.toggle('is-drone', on);
-    gsap.to(droneHud.el, { autoAlpha: on ? 1 : 0, duration: on ? 1.6 : 0.8, ease: 'power2.inOut', overwrite: 'auto' });
+    document.body.classList.toggle('is-dji', mode === 'dji');
+    droneHud.el.classList.toggle('is-dji', mode === 'dji');
+    gsap.to(droneHud.el, { autoAlpha: on ? 1 : 0, duration: on ? 1.2 : 0.6, ease: 'power2.inOut', overwrite: 'auto' });
 }
 
-// Scansione 3D: la linea sale dalla base alla cima della basilica
-function runScan(duration, token) {
+// ——— Rilievo fotogrammetrico: drone, rete di prese, ricostruzione progressiva ———
+const drone = createDrone();
+const captures = createCaptureNetwork();
+scene.add(drone.group, drone.cone, captures.lines);
+const scanSession = { active: false, t: 0, shutterAcc: 0, count: 0 };
+const shotCtx = { drone: { pos: new THREE.Vector3(), look: new THREE.Vector3() }, roll: 0 };
+let lastShotMoving = false; // la ripresa precedente terminava in movimento (niente arresti tra le scene)
+let activeShot = null; // ripresa "path" in corso: la posa si valuta nel render loop (in sincrono con il drone)
+
+function startScanSession(token) {
+    Object.assign(scanSession, { active: true, t: 0, shutterAcc: 0, count: 0 });
+    captures.reset();
+    captures.lines.material.opacity = 0.55;
+    captures.lines.visible = true;
+    scanUniforms.uScanTurns.value = SCAN.turns;
+    scanUniforms.uScanStartAz.value = THREE.MathUtils.degToRad(SCAN.startAz);
+    scanUniforms.uScanU.value = -0.6;
+    droneAt(0, shotCtx.drone.pos, shotCtx.drone.look);
+    track(token, gsap.to(scanUniforms.uScanMix, { value: 1, duration: 1.2, ease: 'sine.inOut' }));
     gsap.to(droneHud.scan, { opacity: 1, duration: 1 });
-    track(token, gsap.timeline()
-        .to(scanUniforms.uScanMix, { value: 1, duration: 1.5, ease: 'sine.inOut' }, 0)
-        .fromTo(scanUniforms.uScanY, { value: -2 }, { value: 72, duration: duration * 0.78, ease: 'sine.inOut' }, 0.5)
-        .to(scanUniforms.uScanMix, { value: 0, duration: 2.5, ease: 'sine.inOut' }, duration * 0.78 + 0.8)
-        .to(droneHud.scan, { opacity: 0, duration: 1 }, duration * 0.78 + 1.5));
+    track(token, gsap.to(scanSession, { t: 1, duration: SCAN.duration, ease: 'none', onComplete: endScanSession }));
 }
-function stopScan() {
-    gsap.to(scanUniforms.uScanMix, { value: 0, duration: 1.2, overwrite: 'auto' });
-    gsap.to(droneHud.scan, { opacity: 0, duration: 0.6, overwrite: 'auto' });
+
+function endScanSession(immediate = false) {
+    if (!scanSession.active && !immediate) return;
+    scanSession.active = false;
+    drone.setVisible(false);
+    const d = immediate ? 0.8 : 2.5;
+    gsap.to(scanUniforms.uScanMix, { value: 0, duration: d, ease: 'sine.inOut', overwrite: 'auto' });
+    gsap.to(droneHud.scan, { opacity: 0, duration: 1, overwrite: 'auto' });
+    gsap.to(captures.lines.material, { opacity: 0, duration: d, overwrite: 'auto', onComplete: () => { captures.lines.visible = false; } });
+}
+
+const _look = new THREE.Vector3();
+function updateScan(dt, t) {
+    const { pos, look } = shotCtx.drone;
+    droneAt(scanSession.t, pos, look);
+    drone.setPose(pos, look, t);
+    drone.setVisible(!activeShot?.shot.hideDrone);
+    scanUniforms.uScanU.value = scanSession.t * (SCAN.turns + 0.75) - 0.2;
+    scanUniforms.uDronePos.value.copy(pos);
+    scanUniforms.uDroneDir.value.copy(_look.subVectors(look, pos).normalize());
+    // otturatore: uno scatto ogni ~0,4 s, ognuno lascia un fotogramma nella rete di prese
+    scanSession.shutterAcc += dt;
+    if (scanSession.shutterAcc > 0.4) {
+        scanSession.shutterAcc = 0;
+        scanSession.count++;
+        captures.add(pos, look);
+        scanUniforms.uShutter.value = 1;
+    }
+    scanUniforms.uShutter.value *= Math.exp(-dt * 10);
+}
+
+// Stacco di montaggio: dissolvenza su nero, cambio di inquadratura al buio, riapertura
+function cut(token, atBlack) {
+    return new Promise((resolve) => {
+        track(token, gsap.timeline()
+            .to(ui.cut, { opacity: 1, duration: 0.45, ease: 'power2.in' })
+            .call(atBlack)
+            .to(ui.cut, { opacity: 0, duration: 0.9, ease: 'power2.out' })
+            .call(resolve, null, 0.75));
+    });
+}
+
+function applyShotFrame(shot) {
+    rig.clearance = shot.clearance?.min ?? CAMERA_CLEARANCE;
+    rig.clearanceR = shot.clearance?.r ?? 3;
 }
 
 async function playChapterShot(shot, token) {
-    setDroneHud(false);
+    activeShot = null;
+    rig.rollTarget = 0;
+    applyShotFrame({});
+    setDroneHud(null);
     const duration = shot.travel ?? (shot.chapter === currentPoint && !offChapter ? 3.5 : SHOW_TRAVEL);
-    await travel(shot.chapter, { duration, mood: shot.mood, idle: 1.6 });
+    await travel(shot.chapter, { duration, mood: shot.mood, idle: 1.6, ease: lastShotMoving ? 'sine.out' : EASE_CAMERA });
+    lastShotMoving = false;
     return shot.hold;
 }
 
@@ -447,42 +547,66 @@ async function playPathShot(shot, token) {
     offChapter = true;
     freezeIdle();
     chapterOut();
+    const isCut = shot.transition === 'cut' && !reducedMotion;
     const enter = reducedMotion ? 0.1 : shot.enter ?? 6;
-    setAtmosphere(shot.mood, Math.max(enter, 3));
-    setDroneHud(!!shot.drone);
-    gsap.to(lens, { breath: shot.fov ?? 0, duration: Math.max(enter, 3), ease: 'sine.inOut', overwrite: 'auto' });
-    if (shot.caption) scheduleCaption(shot.caption, enter * 0.6 + 0.6);
-
-    const startPos = new THREE.Vector3();
-    const startTarget = new THREE.Vector3();
-    shot.pose(0, startPos, startTarget);
-    await new Promise((resolve) => {
-        track(token, arcTo({ position: startPos, target: startTarget }, enter)).eventCallback('onComplete', resolve);
-    });
-    if (show !== token) return 0;
-
-    if (shot.scan) runScan(shot.duration, token);
-    // Senza caption la ripresa resta "pulita": si nasconde il testo precedente
-    if (!shot.caption) chapterOut();
     const state = { t: 0 };
+    const fovBreath = (shot.fov ?? lens.base) - lens.base;
+    if (shot.scanStart) startScanSession(token);
+
+    if (isCut) {
+        setAtmosphere(shot.mood, 2.5);
+        await cut(token, () => {
+            rig.snap = true; // stacco: la camera salta senza molla
+            activeShot = { shot, state };
+            applyShotFrame(shot);
+            shotCtx.roll = 0;
+            shot.pose(0, rig.basePos, rig.target, shotCtx);
+            rig.roll = rig.rollTarget = shotCtx.roll;
+            gsap.killTweensOf(lens);
+            lens.breath = fovBreath;
+            setDroneHud(shot.hud);
+        });
+        if (show !== token) return 0;
+        if (shot.caption) scheduleCaption(shot.caption, 0.4);
+    } else {
+        activeShot = null;
+        setAtmosphere(shot.mood, Math.max(enter, 3));
+        setDroneHud(shot.hud);
+        applyShotFrame(shot);
+        gsap.to(lens, { breath: fovBreath, duration: Math.max(enter, 3), ease: 'sine.inOut', overwrite: 'auto' });
+        if (shot.caption) scheduleCaption(shot.caption, enter * 0.6 + 0.6);
+        const startPos = new THREE.Vector3();
+        const startTarget = new THREE.Vector3();
+        shotCtx.roll = 0;
+        shot.pose(0, startPos, startTarget, shotCtx);
+        await new Promise((resolve) => {
+            track(token, arcTo({ position: startPos, target: startTarget }, enter, { ease: lastShotMoving ? 'none' : 'sine.in' }))
+                .eventCallback('onComplete', resolve);
+        });
+        if (show !== token) return 0;
+        activeShot = { shot, state };
+    }
+    lastShotMoving = true;
+
+    if (!shot.caption) chapterOut();
     track(token, gsap.to(state, {
         t: 1,
         duration: shot.duration,
-        ease: shot.ease ?? 'sine.inOut',
-        onUpdate: () => shot.pose(state.t, rig.basePos, rig.target),
+        ease: shot.ease ?? 'none',
         onComplete: () => { busy = false; },
     }));
-    // La barra avanza durante la ripresa; il resto dell'attesa è la ripresa stessa
     return shot.duration;
 }
 
-async function startShow() {
+async function startShow(startIndex = 0) {
     if (show || busy) return;
     const token = { calls: [] };
     show = token;
     queued = null;
+    lastShotMoving = false;
     hideScrollHint();
     document.body.classList.add('is-show');
+    updateLens();
     droneHud.started = clock.elapsedTime;
     gsap.to(chromeEls, { autoAlpha: 0, duration: 1.2, ease: 'power2.inOut' });
     gsap.to(ui.showHud, { autoAlpha: 1, duration: 1.4, delay: 1.2 });
@@ -492,9 +616,10 @@ async function startShow() {
     }
 
     // Loop continuo finché l'utente non esce
+    let first = typeof startIndex === 'number' ? startIndex : 0;
     while (show === token) {
         gsap.set(showSegments, { scaleX: 0 });
-        for (let i = 0; i < SHOW_SEQUENCE.length; i++) {
+        for (let i = first; i < SHOW_SEQUENCE.length; i++) {
             if (show !== token) return;
             const shot = SHOW_SEQUENCE[i];
             const hold = shot.type === 'chapter' ? await playChapterShot(shot, token) : await playPathShot(shot, token);
@@ -502,6 +627,7 @@ async function startShow() {
             track(token, gsap.to(showSegments[i], { scaleX: 1, duration: hold, ease: 'none' }));
             await wait(hold, token);
         }
+        first = 0;
     }
 }
 
@@ -510,11 +636,17 @@ function exitShow() {
     if (!token) return;
     show = null;
     token.calls.forEach((c) => c.kill());
+    activeShot = null;
+    lastShotMoving = false;
+    rig.rollTarget = 0;
+    applyShotFrame({});
+    gsap.to(ui.cut, { opacity: 0, duration: 0.4, overwrite: 'auto' });
+    endScanSession(true);
     document.body.classList.remove('is-show');
+    updateLens();
     gsap.to(ui.showHud, { autoAlpha: 0, duration: 0.8 });
     gsap.to(chromeEls, { autoAlpha: 1, duration: 1.4, delay: 0.6, ease: 'power2.out' });
-    setDroneHud(false);
-    stopScan();
+    setDroneHud(null);
     gsap.to(lens, { breath: 0, duration: 2.5, ease: 'sine.inOut', overwrite: 'auto' });
     setAtmosphere(currentMoodName(), 3);
     if (offChapter) {
@@ -527,7 +659,7 @@ function exitShow() {
     }
 }
 
-ui.showCta.addEventListener('click', startShow);
+ui.showCta.addEventListener('click', () => startShow());
 ui.showExit.addEventListener('click', exitShow);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') exitShow(); });
 
@@ -597,12 +729,20 @@ function loaderExit() {
         .to(q('.loader-seam'), { opacity: 0, scaleX: 1.2, duration: 1.6, ease: 'power2.out' }, 2.5);
 }
 
-function intro({ basilica, cityPoints, cityEdges, heightfield: hf }) {
+function intro({ basilica, cityPoints, cityEdges, ground, heightfield: hf }) {
     heightfield = hf;
+    const groundMesh = createGround(ground);
+    groundAt = groundMesh.userData.heightAt;
     basilica.traverse((o) => { if (o.isMesh) basilicaMaterials.push(o.material); });
-    scene.add(createCityEdges(cityEdges), createCityPoints(cityPoints), createMotes(), createRain());
+    scene.add(groundMesh, createCityEdges(cityEdges), createCityPoints(cityPoints), createMotes(), createRain());
     shadowsDirtyUntil = clock.elapsedTime + 8; // ombre vive durante i fade-in
     setAtmosphere(cameraPoints[0].lighting, 0.01);
+
+    drone.setVisible(true);
+    captures.lines.visible = true;
+    renderer.compile(scene, camera);
+    drone.setVisible(false);
+    captures.lines.visible = false;
 
     const tl = gsap.timeline({ delay: 0.5 });
     tl.add(loaderExit(), 0);
@@ -652,7 +792,7 @@ window.addEventListener('resize', resize);
 
 // === RISOLUZIONE ADATTIVA ===
 // Se il frame rate scende, riduce il pixel ratio a gradini; risale solo dopo più finestre stabili.
-const perf = { acc: 0, frames: 0, dpr: maxDpr, good: 0 };
+const perf = { acc: 0, frames: 0, dpr: maxDpr, good: 0, bad: 0, lastChange: 0 };
 function setDpr(dpr) {
     perf.dpr = THREE.MathUtils.clamp(dpr, 1, maxDpr);
     renderer.setPixelRatio(perf.dpr);
@@ -666,15 +806,26 @@ function adaptResolution(dt) {
     const avg = perf.acc / perf.frames;
     perf.acc = 0;
     perf.frames = 0;
-    if (avg > 1 / 40 && perf.dpr > 1) { perf.good = 0; setDpr(perf.dpr - 0.25); }
-    else if (avg < 1 / 57 && perf.dpr < maxDpr && ++perf.good >= 3) { perf.good = 0; setDpr(perf.dpr + 0.25); }
+    // Ogni cambio ricrea i buffer di rendering (micro-blocco): si interviene di rado e mai durante lo show,
+    // salvo cali importanti; si risale solo nel tour, dopo tre finestre stabili.
+    const now = clock.elapsedTime;
+    if (now - perf.lastChange < 10) return;
+    if (avg > 1 / 38 && perf.dpr > 1) {
+        perf.good = 0;
+        if (++perf.bad >= (show ? 3 : 2)) { perf.bad = 0; perf.lastChange = now; setDpr(perf.dpr - 0.25); }
+    } else {
+        perf.bad = 0;
+        if (!show && avg < 1 / 57 && perf.dpr < maxDpr && ++perf.good >= 3) { perf.good = 0; perf.lastChange = now; setDpr(perf.dpr + 0.25); }
+    }
 }
 
 // Telemetria del mirino: quota, rotta e coordinate reali derivate dalla posizione della camera
 // (asse -z = nord, +x = est; origine sulla basilica).
 const ORIGIN = { lat: 45.70336, lon: 9.6625 };
 const _dir = new THREE.Vector3();
+const HOME = new THREE.Vector3(-25, 0, -48); // punto di decollo: Piazza Duomo
 function updateDroneHud(t) {
+    const dtHud = t - droneHud.lastUpdate;
     droneHud.lastUpdate = t;
     const p = camera.position;
     const lat = ORIGIN.lat - p.z / 111320;
@@ -686,20 +837,48 @@ function updateDroneHud(t) {
     droneHud.coords.textContent = `${lat.toFixed(5)}° N · ${lon.toFixed(5)}° E`;
     droneHud.alt.textContent = `ALT ${String(Math.round(p.y)).padStart(3, '0')} m`;
     droneHud.hdg.textContent = `HDG ${String(Math.round(hdg)).padStart(3, '0')}°`;
-    const scan = THREE.MathUtils.clamp((scanUniforms.uScanY.value + 2) / 74, 0, 1);
-    droneHud.scanValue.textContent = `${String(Math.round(scan * 100)).padStart(3, '0')}%`;
-    droneHud.scanBar.style.setProperty('--scan', scan.toFixed(3));
+    const done = scanSession.active ? scanSession.t : 1;
+    droneHud.scanValue.textContent = `${String(Math.round(done * 100)).padStart(3, '0')}%`;
+    droneHud.scanBar.style.setProperty('--scan', done.toFixed(3));
+
+    if (droneHud.mode === 'dji' && dtHud > 0 && dtHud < 1 && !Number.isNaN(droneHud.prev.x)) {
+        const agl = p.y - groundAt(p.x, p.z);
+        const hs = Math.hypot(p.x - droneHud.prev.x, p.z - droneHud.prev.z) / dtHud;
+        const vs = (p.y - droneHud.prev.y) / dtHud;
+        const pitch = THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(_dir.y, -1, 1)));
+        droneHud.djiH.textContent = agl.toFixed(1);
+        droneHud.djiD.textContent = String(Math.round(Math.hypot(p.x - HOME.x, p.z - HOME.z)));
+        droneHud.djiHs.textContent = hs.toFixed(1);
+        droneHud.djiVs.textContent = vs.toFixed(1);
+        droneHud.djiPitch.textContent = `${Math.round(pitch)}°`;
+        droneHud.djiPitchBar.style.setProperty('--pitch', `${THREE.MathUtils.clamp(-pitch / 90, 0, 1) * 100}%`);
+        droneHud.djiCount.textContent = String(scanSession.count).padStart(3, '0');
+        droneHud.djiCount.parentElement.style.visibility = scanSession.active ? 'visible' : 'hidden';
+        droneHud.djiShutter.style.setProperty('--flash', scanUniforms.uShutter.value.toFixed(2));
+        droneHud.djiBatt.textContent = `${Math.max(12, 86 - Math.floor(elapsed / 25))}%`;
+    }
+    droneHud.prev.copy(p);
 }
 
 // === RENDER LOOP ===
 const _pos = new THREE.Vector3();
 const _tgt = new THREE.Vector3();
-renderer.setAnimationLoop(() => {
-    const dt = Math.min(clock.getDelta(), 0.1);
-    const t = clock.elapsedTime;
+let frameCount = 0;
+// Il rendering gira dentro il ticker di GSAP: i tween della camera e il frame usano lo stesso istante,
+// così la velocità della camera è regolare anche quando il frame rate oscilla.
+gsap.ticker.lagSmoothing(0);
+gsap.ticker.add((time, deltaMs) => {
+    const dt = Math.min(deltaMs / 1000, 0.1);
+    const t = time;
+    clock.elapsedTime = t;
     atmosphereUniforms.uTime.value = t;
     atmosphereUniforms.uPixelRatio.value = renderer.getPixelRatio();
-    if (t < shadowsDirtyUntil) renderer.shadowMap.needsUpdate = true;
+    // ombre: la mappa (basilica 1,9 M triangoli) si ricalcola al massimo ogni 3 frame durante i cambi di luce
+    frameCount++;
+    if ((t < shadowsDirtyUntil || shadowState.dirty) && frameCount % 3 === 0) {
+        renderer.shadowMap.needsUpdate = true;
+        shadowState.dirty = false;
+    }
     lighting.flashLight.intensity = atmosphereUniforms.uFlash.value * 1.6;
     fogPass.uniforms.uSunDir.value.subVectors(lighting.sunLight.position, lighting.sunLight.target.position).normalize();
     fogPass.uniforms.uSunColor.value.copy(lighting.sunLight.color);
@@ -709,31 +888,58 @@ renderer.setAnimationLoop(() => {
         camera.updateProjectionMatrix();
     }
 
+    if (scanSession.active) updateScan(dt, t);
+    if (activeShot && !debugEnabled) {
+        shotCtx.roll = 0;
+        activeShot.shot.pose(activeShot.state.t, rig.basePos, rig.target, shotCtx);
+        rig.rollTarget = shotCtx.roll;
+    }
+    rig.roll += (rig.rollTarget - rig.roll) * Math.min(1, dt * 2.5);
+
     if (debugEnabled) {
         debugSystem.controls.update();
         debugSystem.update({ camera, target: debugSystem.controls.target, lighting, deltaTime: dt, renderer });
     } else {
         idlePose(t, _pos, _tgt);
         rig.pointerSmooth.lerp(rig.pointer, 0.025);
-        const driftX = reducedMotion ? 0 : Math.sin(t * 0.13) * 0.6 + rig.pointerSmooth.x * 2;
-        const driftY = reducedMotion ? 0 : Math.sin(t * 0.17) * 0.35 - rig.pointerSmooth.y * 1.1;
+        // nelle riprese dello show il drift è minimo (le camere hanno già il loro movimento): sfuma, non scatta
+        rig.drift += ((reducedMotion ? 0 : activeShot ? 0.15 : 1) - rig.drift) * Math.min(1, dt * 1.5);
+        const driftX = (Math.sin(t * 0.13) * 0.6 + rig.pointerSmooth.x * 2) * rig.drift;
+        const driftY = (Math.sin(t * 0.17) * 0.35 - rig.pointerSmooth.y * 1.1) * rig.drift;
+        // posa desiderata (con drift nello spazio camera)
         camera.position.copy(_pos);
         camera.lookAt(_tgt);
         camera.translateX(driftX);
         camera.translateY(driftY);
+        _pos.copy(camera.position);
         // Rete di sicurezza: la camera non scende mai dentro tetti o terreno
-        const minY = heightfield ? heightfield.heightAt(camera.position.x, camera.position.z, 3) + CAMERA_CLEARANCE : -Infinity;
+        const minY = sceneHeightAt(_pos.x, _pos.z, rig.clearanceR) + rig.clearance;
+        if (_pos.y < minY) _pos.y = minY;
+
+        if (rig.snap) {
+            camSmooth.pos.copy(_pos);
+            camSmooth.tgt.copy(_tgt);
+            camSmooth.vPos.set(0, 0, 0);
+            camSmooth.vTgt.set(0, 0, 0);
+            rig.snap = false;
+        } else {
+            smoothDamp(camSmooth.pos, _pos, camSmooth.vPos, 0.55, dt);
+            smoothDamp(camSmooth.tgt, _tgt, camSmooth.vTgt, 0.45, dt);
+        }
+        camera.position.copy(camSmooth.pos);
         if (camera.position.y < minY) camera.position.y = minY;
-        camera.lookAt(_tgt);
+        camera.lookAt(camSmooth.tgt);
+        if (Math.abs(rig.roll) > 1e-4) camera.rotateZ(rig.roll);
     }
 
-    if (droneHud.on && t - droneHud.lastUpdate > 0.1) updateDroneHud(t);
+    if (droneHud.mode && t - droneHud.lastUpdate > 0.1) updateDroneHud(t);
 
     composer.render(dt);
     adaptResolution(dt);
+    if (import.meta.env.DEV && window.__skycrab?.frameHook) window.__skycrab.frameHook(t, dt, camera, rig);
 });
 
 export { scene, camera, renderer };
 
 // Solo sviluppo: accesso alla scena per ispezioni e screenshot automatici
-if (import.meta.env.DEV) window.__skycrab = { THREE, scene, camera, renderer, composer, rig, cameraPoints, scanUniforms, setAtmosphere };
+if (import.meta.env.DEV) window.__skycrab = { THREE, scene, camera, renderer, composer, rig, cameraPoints, scanUniforms, setAtmosphere, startShow, drone };

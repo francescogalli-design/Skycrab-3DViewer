@@ -67,11 +67,36 @@
             <span class="hud-hdg">HDG 000°</span>
         </div>
         <div class="hud-scan">
-            <span>Scansione 3D</span>
+            <span>Ricostruzione 3D</span>
             <b>000%</b>
             <em><i></i></em>
         </div>
+
+        <!-- Interfaccia di volo in stile DJI (solo nel POV del drone) -->
+        <div class="dji-top">
+            <span class="dji-pill"><i class="dji-dot"></i>P-GPS</span>
+            <span class="dji-pill">GNSS 24</span>
+            <span class="dji-pill">4K · 60 fps</span>
+            <span class="dji-pill dji-batt"><em><i></i></em><b>86%</b></span>
+        </div>
+        <div class="dji-focus" aria-hidden="true"></div>
+        <div class="dji-gimbal">
+            <span class="dji-gimbal-track"><i></i></span>
+            <b class="dji-pitch">-30°</b>
+        </div>
+        <div class="dji-photo">
+            <span class="dji-shutter"></span>
+            <span class="dji-photo-label">Foto</span>
+            <b class="dji-count">000</b>
+        </div>
+        <div class="dji-bottom">
+            <span>H <b class="dji-h">0.0</b> m</span>
+            <span>D <b class="dji-d">0</b> m</span>
+            <span>H.S <b class="dji-hs">0.0</b> m/s</span>
+            <span>V.S <b class="dji-vs">0.0</b> m/s</span>
+        </div>
     </div>
+    <div class="cut" aria-hidden="true"></div>
     <div class="show-hud" aria-hidden="true">
         <div class="show-progress"></div>
         <button class="show-exit" type="button" aria-label="Esci dallo show">

@@ -3,6 +3,9 @@ import { gsap } from 'gsap';
 import { tweenAtmosphere } from './atmosphere.js';
 
 // Atmosfere: ogni capitolo del tour ne richiama una (cameraPoints[].lighting)
+// Richiesta di ricalcolo ombre: il render loop la esegue a frequenza ridotta
+export const shadowState = { dirty: false };
+
 export const MOODS = {
     // Alba: sole radente rosato, foschia mattutina densa (usata nello show)
     dawn: {
@@ -136,7 +139,8 @@ export function applyMood(name, { lighting, renderer, scene, atmosphere }, durat
         toneMappingExposure: mood.exposure,
         duration,
         ease,
-        onUpdate: () => { renderer.shadowMap.needsUpdate = true; },
+        // il render loop ricalcola le ombre a frequenza ridotta finché la luce cambia
+        onUpdate: () => { shadowState.dirty = true; },
         onComplete: () => { renderer.shadowMap.needsUpdate = true; },
     });
     if (scene) gsap.to(scene, { environmentIntensity: mood.envIntensity, duration, ease });

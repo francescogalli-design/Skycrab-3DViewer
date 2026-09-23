@@ -21,16 +21,23 @@ export const atmosphereUniforms = {
     uWind: { value: new THREE.Vector2(6, 2.5) },
 };
 
-// Scansione 3D della basilica: quota della linea di scansione e intensità dell'effetto
+// Fotogrammetria da drone: la ricostruzione segue la spirale di volo (coordinate "in giri")
 export const scanUniforms = {
-    uScanY: { value: -10 },
     uScanMix: { value: 0 },
+    uScanU: { value: -1 },                       // avanzamento del drone lungo la spirale, in giri
+    uScanTurns: { value: 2.5 },
+    uScanStartAz: { value: 0 },
+    uScanCenter: { value: new THREE.Vector2(-4, -4) },
+    uDronePos: { value: new THREE.Vector3(0, 100, 0) },
+    uDroneDir: { value: new THREE.Vector3(0, -1, 0) },
+    uShutter: { value: 0 },                      // impulso a ogni scatto
 };
 
 /**
- * Aggiunge al materiale della basilica l'effetto "scansione da drone":
- * sopra la linea la pietra non è ancora rilevata (griglia dorata su fondo scuro),
- * sotto è il modello finito; la linea stessa è una banda luminosa che il bloom fa brillare.
+ * Effetto "fotogrammetria" sul materiale della basilica, in tre stati per frammento:
+ * non ancora ripreso → nuvola sparsa di tie point; appena ripreso → maglia della mesh che svanisce;
+ * ricostruito → texture finale. Il fronte di ricostruzione avanza con il drone lungo un'elica,
+ * e l'impronta della camera del drone si illumina a ogni scatto.
  */
 export function applyScanEffect(material) {
     material.onBeforeCompile = (shader) => {
@@ -39,24 +46,50 @@ export function applyScanEffect(material) {
             .replace('#include <common>', '#include <common>\nvarying vec3 vScanWorld;')
             .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvScanWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
         shader.fragmentShader = shader.fragmentShader
-            .replace('#include <common>', '#include <common>\nvarying vec3 vScanWorld;\nuniform float uScanY, uScanMix;')
+            .replace('#include <common>', `#include <common>
+                varying vec3 vScanWorld;
+                uniform float uScanMix, uScanU, uScanTurns, uScanStartAz, uShutter;
+                uniform vec2 uScanCenter;
+                uniform vec3 uDronePos, uDroneDir;`)
             .replace('#include <dithering_fragment>', `#include <dithering_fragment>
                 if (uScanMix > 0.001) {
-                    vec3 gold = vec3(0.95, 0.74, 0.4);
-                    vec3 f = abs(fract(vScanWorld * 0.9) - 0.5);
-                    float grid = 1.0 - smoothstep(0.0, 0.035, min(min(f.x, f.y), f.z));
-                    float pending = step(uScanY, vScanWorld.y);
-                    vec3 raw = gl_FragColor.rgb * 0.06 + gold * grid * 0.35;
-                    // Sulle superfici orizzontali (tetti, piazze) la quota varia poco sullo schermo:
-                    // si attenua la banda per non accendere intere falde di tetto
-                    float slope = clamp(fwidth(vScanWorld.y) * 6.0, 0.12, 1.0);
-                    float band = exp(-pow((vScanWorld.y - uScanY) / 0.35, 2.0)) * slope;
-                    float trail = exp(-max(uScanY - vScanWorld.y, 0.0) / 3.0) * (1.0 - pending);
-                    gl_FragColor.rgb = mix(gl_FragColor.rgb, raw, pending * uScanMix)
-                        + gold * (band * 1.6 + trail * 0.1) * uScanMix;
+                    vec3 p = vScanWorld;
+                    vec2 d = p.xz - uScanCenter;
+                    float f = fract((atan(d.x, d.y) - uScanStartAz) / 6.2831853);
+                    float s = clamp(1.0 - p.y / 70.0, 0.0, 1.0);
+                    float age = uScanU - (s * uScanTurns + f - 0.5);
+                    float covered = smoothstep(0.0, 0.06, age);
+
+                    vec3 tech = vec3(0.84, 0.92, 1.0);
+                    vec3 albedo = gl_FragColor.rgb;
+                    // nuvola sparsa colorata come le foto (stile DJI Terra): un punto per cella di 80 cm,
+                    // attenuata quando le celle diventano più piccole di pochi pixel
+                    float cellPx = 1.0 / max(length(fwidth(p * 1.25)), 1e-4);
+                    vec3 cell = floor(p * 1.25);
+                    float h = fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+                    float pt = (1.0 - smoothstep(0.1, 0.2, length(fract(p * 1.25) - 0.5))) * step(0.45, h);
+                    pt *= smoothstep(2.5, 7.0, cellPx);
+                    vec3 pending = albedo * 0.025 + albedo * pt * 1.35;
+
+                    // maglia della mesh appena calcolata (linee antialias, svanisce presto e da lontano)
+                    vec3 gp = p * 0.75;
+                    vec3 g = abs(fract(gp) - 0.5) / max(fwidth(gp), vec3(1e-4));
+                    float wire = 1.0 - clamp(min(min(g.x, g.y), g.z) - 0.5, 0.0, 1.0);
+                    wire *= smoothstep(3.0, 9.0, 1.0 / max(length(fwidth(gp)), 1e-4));
+                    float fresh = covered * (1.0 - smoothstep(0.03, 0.32, age));
+                    vec3 built = mix(albedo, albedo * 0.55 + tech * wire * 0.28, fresh * 0.8);
+
+                    vec3 col = mix(pending, built, covered);
+                    col += vec3(0.96, 0.8, 0.52) * exp(-pow(age / 0.03, 2.0)) * 0.55;
+
+                    // impronta della camera: appena percettibile, un lampo leggero a ogni scatto
+                    float cone = smoothstep(0.86, 0.885, dot(normalize(p - uDronePos), uDroneDir));
+                    col += albedo * cone * (0.08 + uShutter * 0.35);
+
+                    gl_FragColor.rgb = mix(gl_FragColor.rgb, col, uScanMix);
                 }`);
     };
-    material.customProgramCacheKey = () => 'basilica-scan';
+    material.customProgramCacheKey = () => 'basilica-photogrammetry';
 }
 
 // Header: min xyz, max xyz (float32), count (uint32); poi record quantizzati uint16
@@ -185,6 +218,74 @@ export function createCityEdges(buffer) {
     lines.frustumCulled = false;
     lines.renderOrder = 1;
     return lines;
+}
+
+/**
+ * Suolo di Città Alta e dintorni: griglia 500×500 a 3,2 m (±800 m), Int16 in cm, origine (-800, -800).
+ * Coincide con strade e piazze della città e, sotto la basilica, con il piano della sua piazza:
+ * il modello vi appoggia e ne riceve le ombre. Sfuma nel nero verso l'orizzonte.
+ */
+export function createGround(buffer) {
+    const m = 500;
+    const size = 1600;
+    const cell = size / m;
+    const heights = new Int16Array(buffer);
+    const geometry = new THREE.PlaneGeometry(size, size, m - 1, m - 1);
+    geometry.rotateX(-Math.PI / 2);
+    const pos = geometry.attributes.position;
+    let lowest = Infinity;
+    for (let i = 0; i < pos.count; i++) {
+        const h = heights[i] / 100;
+        pos.setY(i, h);
+        lowest = Math.min(lowest, h);
+    }
+    geometry.computeVertexNormals();
+
+    // Pietra scura con variazioni a grana larga e fine: le ombre della basilica restano leggibili
+    const material = new THREE.MeshStandardMaterial({ color: 0x3b3834, roughness: 0.96, metalness: 0, envMapIntensity: 0.25 });
+    material.onBeforeCompile = (shader) => {
+        shader.vertexShader = shader.vertexShader
+            .replace('#include <common>', '#include <common>\nvarying vec3 vGroundWorld;')
+            .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvGroundWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+        shader.fragmentShader = shader.fragmentShader
+            .replace('#include <common>', `#include <common>
+                varying vec3 vGroundWorld;
+                float gHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+                float gNoise(vec2 p) {
+                    vec2 i = floor(p), f = fract(p);
+                    f = f * f * (3.0 - 2.0 * f);
+                    return mix(mix(gHash(i), gHash(i + vec2(1, 0)), f.x), mix(gHash(i + vec2(0, 1)), gHash(i + vec2(1, 1)), f.x), f.y);
+                }`)
+            .replace('#include <color_fragment>', `#include <color_fragment>
+                float gv = gNoise(vGroundWorld.xz * 0.05) * 0.55 + gNoise(vGroundWorld.xz * 0.6) * 0.3 + gNoise(vGroundWorld.xz * 3.0) * 0.15;
+                diffuseColor.rgb *= 0.7 + gv * 0.6;`)
+            .replace('#include <dithering_fragment>', `#include <dithering_fragment>
+                gl_FragColor.rgb *= mix(1.0, 0.18, smoothstep(40.0, 220.0, length(vGroundWorld.xz - vec2(-4.0, -4.0)))) * (1.0 - smoothstep(300.0, 760.0, length(vGroundWorld.xz - vec2(-4.0, -4.0))));`);
+    };
+
+    const group = new THREE.Group();
+    const terrain = new THREE.Mesh(geometry, material);
+    terrain.receiveShadow = true;
+    const outer = new THREE.Mesh(
+        new THREE.PlaneGeometry(12000, 12000).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({ color: 0x000000 }),
+    );
+    outer.position.y = lowest - 2;
+    group.add(terrain, outer);
+
+    // Quota del suolo in un punto (bilineare): usata anche per tenere la camera sopra il terreno
+    const sample = (gx, gz) => heights[Math.min(m - 1, Math.max(0, gz)) * m + Math.min(m - 1, Math.max(0, gx))] / 100;
+    group.userData.heightAt = (x, z) => {
+        const fx = (x + size / 2) / cell;
+        const fz = (z + size / 2) / cell;
+        const ix = Math.floor(fx);
+        const iz = Math.floor(fz);
+        const tx = fx - ix;
+        const tz = fz - iz;
+        return (sample(ix, iz) * (1 - tx) + sample(ix + 1, iz) * tx) * (1 - tz)
+            + (sample(ix, iz + 1) * (1 - tx) + sample(ix + 1, iz + 1) * tx) * tz;
+    };
+    return group;
 }
 
 // Pulviscolo sospeso: particelle lente che scendono e ondeggiano, animate interamente nel vertex shader

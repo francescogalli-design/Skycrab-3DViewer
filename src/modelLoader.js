@@ -13,10 +13,11 @@ const ASSETS = {
     cityPoints: '/models/opt/city_points.bin',
     cityEdges: '/models/opt/city_edges.bin',
     heightfield: '/models/opt/heightfield.bin',
+    ground: '/models/opt/ground.bin',
 };
 
 // Peso approssimativo usato finché il server non comunica il Content-Length
-const FALLBACK_BYTES = { model: 17e6, diffuse: 6.3e6, normal: 6.9e6, cityPoints: 5.6e6, cityEdges: 0.7e6, heightfield: 0.46e6 };
+const FALLBACK_BYTES = { model: 17e6, diffuse: 6.3e6, normal: 6.9e6, cityPoints: 5.6e6, cityEdges: 0.7e6, heightfield: 0.46e6, ground: 0.5e6 };
 
 async function fetchWithProgress(url, onBytes) {
     const res = await fetch(url);
@@ -72,7 +73,7 @@ export async function setupModelLoader(scene, onProgress = () => {}) {
         report();
     };
 
-    const [modelBuf, diffuseBuf, normalBuf, cityPointsBuf, cityEdgesBuf, heightBuf] = await Promise.all(
+    const [modelBuf, diffuseBuf, normalBuf, cityPointsBuf, cityEdgesBuf, heightBuf, groundBuf] = await Promise.all(
         Object.entries(ASSETS).map(([key, url]) => fetchWithProgress(url, track(key))),
     );
 
@@ -116,6 +117,7 @@ export async function setupModelLoader(scene, onProgress = () => {}) {
         cityPoints: cityPointsBuf,
         cityEdges: cityEdgesBuf,
         heightfield: parseHeightfield(heightBuf),
+        ground: groundBuf,
     };
 }
 
