@@ -705,7 +705,7 @@ window.addEventListener('pointermove', (e) => {
 });
 
 // === CARICAMENTO + INTRO ===
-// Uscita del loader: lettere che salgono, orizzonte dorato che si apre, sipario che si divide
+// Uscita del loader: lettere che salgono, sipario che si divide
 function loaderExit() {
     const q = (s) => ui.loader.querySelector(s);
     const fading = [q('.loader-powered'), q('.loader-foot'), ...ui.loader.querySelectorAll('.loader-corner')];
@@ -723,10 +723,8 @@ function loaderExit() {
         .to(fading,
             { opacity: 0, filter: 'blur(8px)', duration: 0.9, ease: 'power2.in', stagger: 0.08 }, 0.2)
         .to(q('.loader-sheen'), { opacity: 0, duration: 0.4 }, 0.2)
-        .fromTo(q('.loader-seam'), { scaleX: 0, opacity: 1 }, { scaleX: 1, duration: 1.4, ease: 'expo.inOut' }, 1.1)
         .to(q('.curtain--top'), { yPercent: -100, duration: 2.6, ease: 'expo.inOut' }, 2.2)
-        .to(q('.curtain--bottom'), { yPercent: 100, duration: 2.6, ease: 'expo.inOut' }, 2.2)
-        .to(q('.loader-seam'), { opacity: 0, scaleX: 1.2, duration: 1.6, ease: 'power2.out' }, 2.5);
+        .to(q('.curtain--bottom'), { yPercent: 100, duration: 2.6, ease: 'expo.inOut' }, 2.2);
 }
 
 function intro({ basilica, cityPoints, cityEdges, ground, heightfield: hf }) {

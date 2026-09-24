@@ -129,20 +129,6 @@ button:focus-visible {
         #000;
 }
 
-/* Linea d'orizzonte dorata: si apre prima che il sipario si divida */
-.loader-seam {
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 50%;
-    z-index: 2;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, var(--gold) 30%, #f3e2b3 50%, var(--gold) 70%, transparent);
-    transform: scaleX(0);
-    opacity: 0;
-    pointer-events: none;
-}
-
 .loader-corner {
     position: absolute;
     z-index: 3;
